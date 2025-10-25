@@ -5,14 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
-)
 
-type AlertMessage struct {
-	UserID     int     `json:"userid"`
-	ActionType string  `json:"action"`
-	Amount     float32 `json:"amount"`
-	Time       int     `json:"time"`
-}
+	"midnite.com/takehometest/alertcodes"
+)
 
 func AlertHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -23,14 +18,14 @@ func AlertHandler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	// responseBody ALWAYS needs reading to ensure the tcp read buffer is drained and prevent memory leak
-	respBody, err := io.ReadAll(r.Body)
+	reqBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "err reading response body", http.StatusInternalServerError)
 		return
 	}
 
-	var newAlert AlertMessage
-	err = json.Unmarshal(respBody, &newAlert)
+	var newAlert alertcodes.AlertMessage
+	err = json.Unmarshal(reqBody, &newAlert)
 	if err != nil {
 		http.Error(w, "failed to unmarshal json", http.StatusInternalServerError)
 		return
@@ -39,13 +34,32 @@ func AlertHandler(w http.ResponseWriter, r *http.Request) {
 	err = validateAlertBody(newAlert)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	resp, err := alertcodes.QueryAlertCodes(newAlert)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	respJson, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write(respJson)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 }
 
-func validateAlertBody(alertBody AlertMessage) error {
+func validateAlertBody(alertBody alertcodes.AlertMessage) error {
 	if alertBody.UserID <= 0 {
 		return errors.New("userID must be bigger than 0")
 	}
